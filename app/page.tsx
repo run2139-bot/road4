@@ -1,15 +1,21 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Bike, Search } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Bike, Plus, Search } from "lucide-react";
+import AuthModal from "@/components/AuthModal";
+import Header from "@/components/Header";
 import WeatherWidget from "@/components/WeatherWidget";
 import CourseCard from "@/components/CourseCard";
 import CourseModal from "@/components/CourseModal";
+import CourseFormModal from "@/components/CourseFormModal";
 import { useBookmarks } from "@/hooks/useBookmarks";
-import { categories, courses, difficulties, type Category, type Difficulty } from "@/lib/courses";
+import { useCourses } from "@/hooks/useCourses";
+import { useUser } from "@/hooks/useUser";
+import { signOut } from "@/services/authService";
+import { categories, difficulties, type Category, type Course, type Difficulty } from "@/lib/courses";
 import { cn } from "@/lib/utils";
 
-const MAX_DISTANCE = Math.max(...courses.map((c) => c.distance));
+const MIN_SLIDER_MAX = 100;
 
 function Chip({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
@@ -33,28 +39,86 @@ export default function Home() {
   const [query, setQuery] = useState("");
   const [difficulty, setDifficulty] = useState<Difficulty | null>(null);
   const [category, setCategory] = useState<Category | null>(null);
-  const [maxDistance, setMaxDistance] = useState(MAX_DISTANCE);
+  const [distanceLimit, setDistanceLimit] = useState<number | null>(null);
   const [onlyBookmarks, setOnlyBookmarks] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [formOpen, setFormOpen] = useState(false);
+  const [editing, setEditing] = useState<Course | undefined>();
+  const [onlyMine, setOnlyMine] = useState(false);
+  const [authOpen, setAuthOpen] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
   const { bookmarks, toggle } = useBookmarks();
+  const { courses, loading, error, addCourse, updateCourse, deleteCourse } = useCourses();
+  const { user, loading: userLoading } = useUser();
+  const sliderMax = Math.max(MIN_SLIDER_MAX, ...courses.map((c) => c.distance));
+  const maxDistance = Math.min(distanceLimit ?? sliderMax, sliderMax);
+
+  useEffect(() => {
+    if (!toast) return;
+    const id = setTimeout(() => setToast(null), 4000);
+    return () => clearTimeout(id);
+  }, [toast]);
+
+  // 로그아웃되면 "내 작성 코스" 필터와 열려 있던 작성 폼을 정리합니다.
+  useEffect(() => {
+    if (user) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setOnlyMine(false);
+    setFormOpen(false);
+  }, [user]);
+
+  const openForm = (course?: Course) => {
+    // 로그인하지 않았다면 작성 폼 대신 로그인 모달을 띄웁니다.
+    if (!user) {
+      setAuthOpen(true);
+      return;
+    }
+    setEditing(course);
+    setFormOpen(true);
+  };
+  const handleSignOut = async () => {
+    try {
+      await signOut();
+      setToast("로그아웃되었어요.");
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : "로그아웃에 실패했어요.");
+    }
+  };
+  const closeForm = () => setFormOpen(false);
+  const handleDelete = async (course: Course) => {
+    if (!window.confirm(`"${course.title}" 코스를 삭제할까요?`)) return;
+    try {
+      await deleteCourse(course.id);
+      if (selectedId === course.id) setSelectedId(null);
+    } catch {}
+  };
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return courses.filter(
       (c) =>
-        (!q || c.name.toLowerCase().includes(q) || c.region.toLowerCase().includes(q)) &&
+        (!q || c.title.toLowerCase().includes(q) || c.startPoint.toLowerCase().includes(q)) &&
         (!difficulty || c.difficulty === difficulty) &&
         (!category || c.category === category) &&
         c.distance <= maxDistance &&
-        (!onlyBookmarks || bookmarks.includes(c.id)),
+        (!onlyBookmarks || bookmarks.includes(c.id)) &&
+        (!onlyMine || (!!user && c.userId === user.id)),
     );
-  }, [query, difficulty, category, maxDistance, onlyBookmarks, bookmarks]);
+  }, [courses, query, difficulty, category, maxDistance, onlyBookmarks, bookmarks, onlyMine, user]);
 
   const selected = courses.find((c) => c.id === selectedId) ?? null;
 
   return (
     <main className="mx-auto w-full max-w-6xl px-4 pb-20 sm:px-6">
-      <header className="flex flex-col items-start justify-between gap-8 py-14 md:flex-row md:items-center">
+      <Header
+        user={user}
+        loading={userLoading}
+        onlyMine={onlyMine}
+        onToggleMine={() => setOnlyMine((v) => !v)}
+        onOpenAuth={() => setAuthOpen(true)}
+        onSignOut={handleSignOut}
+      />
+      <header className="flex flex-col items-start justify-between gap-8 pb-14 pt-8 md:flex-row md:items-center">
         <div>
           <p className="mb-3 flex items-center gap-2 text-sm font-semibold tracking-widest text-primary">
             <Bike className="size-5" /> BUSAN ROAD CYCLING
@@ -67,6 +131,13 @@ export default function Home() {
           <p className="mt-4 max-w-md text-slate-400">
             바다, 업힐, 강변까지. 오늘의 바람과 컨디션에 맞는 부산 코스를 골라보세요.
           </p>
+          <button
+            type="button"
+            onClick={() => openForm()}
+            className="mt-6 inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-primary to-accent px-5 py-2.5 text-sm font-bold text-slate-950 transition hover:opacity-90"
+          >
+            <Plus className="size-4" /> 코스 추가하기
+          </button>
         </div>
         <WeatherWidget />
       </header>
@@ -103,18 +174,31 @@ export default function Home() {
           <input
             type="range"
             min={10}
-            max={MAX_DISTANCE}
+            max={sliderMax}
             step={1}
             value={maxDistance}
-            onChange={(e) => setMaxDistance(Number(e.target.value))}
+            onChange={(e) => setDistanceLimit(Number(e.target.value))}
             className="w-full"
           />
         </label>
       </section>
 
       <section className="mt-8">
-        <p className="mb-4 text-sm text-slate-400">{filtered.length}개의 코스</p>
-        {filtered.length === 0 ? (
+        {error && (
+          <p role="alert" className="mb-4 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+            데이터베이스 오류: {error}
+          </p>
+        )}
+        <p className="mb-4 text-sm text-slate-400">
+          {loading ? "코스를 불러오는 중…" : `${filtered.length}개의 코스`}
+        </p>
+        {loading ? (
+          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="h-72 animate-pulse rounded-2xl bg-slate-900/60" />
+            ))}
+          </div>
+        ) : filtered.length === 0 ? (
           <p className="rounded-2xl border border-dashed border-slate-700 py-16 text-center text-slate-500">
             조건에 맞는 코스가 없어요.
           </p>
@@ -125,8 +209,11 @@ export default function Home() {
                 key={c.id}
                 course={c}
                 bookmarked={bookmarks.includes(c.id)}
+                canEdit={!!user && c.userId === user.id}
                 onOpen={() => setSelectedId(c.id)}
                 onToggleBookmark={() => toggle(c.id)}
+                onEdit={() => openForm(c)}
+                onDelete={() => handleDelete(c)}
               />
             ))}
           </div>
@@ -140,6 +227,38 @@ export default function Home() {
           onClose={() => setSelectedId(null)}
           onToggleBookmark={() => toggle(selected.id)}
         />
+      )}
+
+      {formOpen && (
+        <CourseFormModal
+          key={editing?.id ?? "new"}
+          course={editing}
+          onClose={closeForm}
+          onSubmit={async (data) => {
+            if (editing) await updateCourse({ ...data, id: editing.id });
+            else await addCourse(data);
+            closeForm();
+          }}
+        />
+      )}
+
+      {authOpen && (
+        <AuthModal
+          onClose={() => setAuthOpen(false)}
+          onSuccess={(message) => {
+            setAuthOpen(false);
+            setToast(message);
+          }}
+        />
+      )}
+
+      {toast && (
+        <div
+          role="status"
+          className="fixed bottom-6 left-1/2 z-[60] -translate-x-1/2 rounded-xl border border-primary/40 bg-slate-900 px-5 py-3 text-sm shadow-lg"
+        >
+          {toast}
+        </div>
       )}
     </main>
   );

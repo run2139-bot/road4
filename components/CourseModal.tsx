@@ -34,18 +34,22 @@ export default function CourseModal({ course, bookmarked, onClose, onToggleBookm
       <div
         role="dialog"
         aria-modal="true"
-        aria-label={course.name}
+        aria-label={course.title}
         onClick={(e) => e.stopPropagation()}
         className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-t-3xl border border-primary/30 bg-slate-950 p-6 sm:rounded-3xl"
       >
+        {course.imageUrl && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={course.imageUrl} alt="" className="-mx-6 -mt-6 mb-5 h-40 w-[calc(100%+3rem)] object-cover" />
+        )}
         <div className="flex items-start justify-between gap-4">
           <div>
             <div className="mb-2 flex gap-2 text-xs font-semibold">
               <span className={cn("rounded-full px-2.5 py-1", difficultyStyle[course.difficulty])}>{course.difficulty}</span>
               <span className="rounded-full bg-primary/15 px-2.5 py-1 text-primary">{course.category}</span>
             </div>
-            <h2 className="text-2xl font-bold">{course.name}</h2>
-            <p className="text-sm text-slate-400">{course.region}</p>
+            <h2 className="text-2xl font-bold">{course.title}</h2>
+            <p className="text-sm text-slate-400">{course.startPoint}</p>
           </div>
           <div className="flex gap-1">
             <button
@@ -69,7 +73,7 @@ export default function CourseModal({ course, bookmarked, onClose, onToggleBookm
           {[
             { icon: Route, label: "거리", value: `${course.distance}km` },
             { icon: Mountain, label: "획득고도", value: `${course.elevationGain}m` },
-            { icon: Timer, label: "예상시간", value: course.duration },
+            { icon: Timer, label: "예상시간", value: course.estimatedTime },
           ].map(({ icon: Icon, label, value }) => (
             <div key={label} className="rounded-xl bg-slate-900 p-3">
               <Icon className="mx-auto mb-1 size-5 text-primary" />
@@ -80,7 +84,7 @@ export default function CourseModal({ course, bookmarked, onClose, onToggleBookm
         </div>
 
         <h3 className="mb-2 mt-6 text-sm font-semibold text-primary">고도 프로필</h3>
-        <ElevationChart profile={course.profile} />
+        <ElevationChart profile={course.elevationData} />
 
         <ul className="mt-4 flex flex-wrap gap-2 text-xs">
           {course.highlights.map((h) => (
